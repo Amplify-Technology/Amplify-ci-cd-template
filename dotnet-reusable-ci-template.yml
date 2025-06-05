@@ -1,0 +1,101 @@
+name: Dotnet Reusable CI Build and Publish Template
+
+on:
+  workflow_call:
+    inputs:
+      projectRepo:
+        required: true
+        type: string
+      projectPath:
+        required: true
+        type: string
+      nuspecPath:
+        required: true
+        type: string
+      packageId:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      AZURE_ARTIFACTS_PAT:
+        required: true
+        type: string
+      GITHUB_REPO_PAT:
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+
+    env:
+      BUILD_CONFIGURATION: Release
+      DOTNET_VERSION: '8.0.x'
+      NUGET_PACKAGE_PATH: amplifyNuget
+      NUGET_FEED_NAME: ArtifactsForGitHubWorkflows
+      AZURE_ARTIFACTS_PAT: ${{ inputs.AZURE_ARTIFACTS_PAT }}
+
+    steps:
+      - name: Checkout Project Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.projectRepo }}
+          token: ${{ inputs.GITHUB_REPO_PAT }}
+          path: project
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install NuGet CLI
+        uses: nuget/setup-nuget@v2
+        with:
+          nuget-version: latest
+
+      - name: Set NuGet Feed URL Based on Branch
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF##*/}" == "dev" ]]; then
+            echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF##*/}" == "qa" ]]; then
+            echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
+          else
+            echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
+          fi
+
+      - name: Configure NuGet Source in Config File
+        run: |
+          nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
+          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
+
+      - name: Restore Packages
+        run: dotnet restore "project/${{ inputs.projectPath }}" --source "$env:NUGET_FEED_URL" --verbosity d
+
+      - name: Build Project
+        run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: dc8159ea-a733-4ef9-95e8-c93fcecc630c
+          tenant-id: b85142e0-e761-410a-ba40-cfe0e7ae5f5b
+          subscription-id: 3da04b10-b2a7-463f-b8bb-3af1142d3623
+
+      - name: Pack with nuget.exe
+        run: |
+          nuget pack "project/${{ inputs.nuspecPath }}" `
+            -OutputDirectory ${{ env.NUGET_PACKAGE_PATH }} `
+            -Version ${{ inputs.version }}
+
+      - name: Push to Azure Artifacts
+        run: |
+          nuget push "${{ env.NUGET_PACKAGE_PATH }}/${{ inputs.packageId }}.${{ inputs.version }}.nupkg" `
+            -Source "$env:NUGET_FEED_URL" `
+            -ApiKey AzureArtifacts `
+            -Verbosity detailed
