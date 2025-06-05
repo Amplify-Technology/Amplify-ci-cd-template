@@ -25,6 +25,11 @@ on:
         required: true
         type: string
 
+    outputs:
+      nupkgPath:
+        description: "Path to generated .nupkg"
+        value: ${{ jobs.build-and-publish.outputs.nupkgPath }}
+
 permissions:
   id-token: write
   contents: read
@@ -32,6 +37,8 @@ permissions:
 jobs:
   build-and-publish:
     runs-on: windows-latest
+    outputs:
+      nupkgPath: ${{ steps.pack.outputs.packagePath }}
 
     env:
       BUILD_CONFIGURATION: Release
@@ -58,24 +65,34 @@ jobs:
         with:
           nuget-version: latest
 
-      - name: Set NuGet Feed URL Based on Branch
+      - name: Set NuGet Feed URL and Package Tag from Branch
         shell: bash
         run: |
-          if [[ "${GITHUB_REF##*/}" == "dev" ]]; then
+          BRANCH_NAME="${GITHUB_REF##*/}"
+          echo "Branch is $BRANCH_NAME"
+
+          if [[ "$BRANCH_NAME" == "dev" ]]; then
             echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
-          elif [[ "${GITHUB_REF##*/}" == "qa" ]]; then
+            echo "PACKAGE_TAG=Dev" >> $GITHUB_ENV
+          elif [[ "$BRANCH_NAME" == "qa" ]]; then
             echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
-          else
+            echo "PACKAGE_TAG=QA" >> $GITHUB_ENV
+          elif [[ "$BRANCH_NAME" == "prod" ]]; then
             echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
+            echo "PACKAGE_TAG=Prod" >> $GITHUB_ENV
+          else
+            echo "Invalid or unsupported branch: $BRANCH_NAME"
+            exit 1
           fi
 
-      - name: Configure NuGet Source in Config File
+      - name: Configure NuGet Source
+        continue-on-error: true
         run: |
           nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
           nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
 
       - name: Restore Packages
-        run: dotnet restore "project/${{ inputs.projectPath }}" --source "$env:NUGET_FEED_URL" --verbosity d
+        run: dotnet restore "project/${{ inputs.projectPath }}" --source "$env:NUGET_FEED_URL"
 
       - name: Build Project
         run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
@@ -88,14 +105,16 @@ jobs:
           subscription-id: 3da04b10-b2a7-463f-b8bb-3af1142d3623
 
       - name: Pack with nuget.exe
+        id: pack
         run: |
           nuget pack "project/${{ inputs.nuspecPath }}" `
             -OutputDirectory ${{ env.NUGET_PACKAGE_PATH }} `
-            -Version ${{ inputs.version }}
+            -Version "${{ inputs.version }}-${{ env.PACKAGE_TAG }}"
+          echo "packagePath=${{ env.NUGET_PACKAGE_PATH }}/${{ inputs.packageId }}.${{ inputs.version }}-${{ env.PACKAGE_TAG }}.nupkg" >> $GITHUB_OUTPUT
 
       - name: Push to Azure Artifacts
         run: |
-          nuget push "${{ env.NUGET_PACKAGE_PATH }}/${{ inputs.packageId }}.${{ inputs.version }}.nupkg" `
+          nuget push "${{ steps.pack.outputs.packagePath }}" `
             -Source "$env:NUGET_FEED_URL" `
             -ApiKey AzureArtifacts `
             -Verbosity detailed
