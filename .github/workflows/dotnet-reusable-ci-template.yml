@@ -65,7 +65,8 @@ jobs:
         with:
           nuget-version: latest
 
-      - name: Set NuGet Feed URL and Package Tag from Branch
+      - name: Set NuGet Feed URL and Stage from Branch
+        id: stage
         shell: bash
         run: |
           BRANCH_NAME="${GITHUB_REF##*/}"
@@ -73,13 +74,13 @@ jobs:
 
           if [[ "$BRANCH_NAME" == "dev" ]]; then
             echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
-            echo "PACKAGE_TAG=Dev" >> $GITHUB_ENV
+            echo "stage=Dev" >> $GITHUB_OUTPUT
           elif [[ "$BRANCH_NAME" == "qa" ]]; then
             echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
-            echo "PACKAGE_TAG=QA" >> $GITHUB_ENV
+            echo "stage=QA" >> $GITHUB_OUTPUT
           elif [[ "$BRANCH_NAME" == "prod" ]]; then
             echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
-            echo "PACKAGE_TAG=Prod" >> $GITHUB_ENV
+            echo "stage=Prod" >> $GITHUB_OUTPUT
           else
             echo "Invalid or unsupported branch: $BRANCH_NAME"
             exit 1
@@ -104,13 +105,35 @@ jobs:
           tenant-id: b85142e0-e761-410a-ba40-cfe0e7ae5f5b
           subscription-id: 3da04b10-b2a7-463f-b8bb-3af1142d3623
 
+      - name: Update .nuspec with tags only (no change to ID)
+        shell: pwsh
+        run: |
+          $stage = '${{ steps.stage.outputs.stage }}'
+          $projectName = [System.IO.Path]::GetFileNameWithoutExtension('${{ inputs.nuspecPath }}')
+
+          Get-ChildItem -Recurse -Filter *.nuspec | ForEach-Object {
+            $path = $_.FullName
+            $content = Get-Content $path -Raw
+
+            $tagsValue = "$projectName $stage"
+
+            if ($content -match '<tags>([^<]*)</tags>') {
+              $content = $content -replace "<tags>.*?</tags>", "<tags>$tagsValue</tags>"
+            } else {
+              $content = $content -replace '(</description>)', "`$1`n    <tags>$tagsValue</tags>"
+            }
+
+            Set-Content -Path $path -Value $content
+            Write-Host "Updated tags to: $tagsValue"
+          }
+
       - name: Pack with nuget.exe
         id: pack
         shell: pwsh
         run: |
           $nuspecPath = "project/${{ inputs.nuspecPath }}"
           $outputDir = "${{ env.NUGET_PACKAGE_PATH }}"
-          $version = "${{ inputs.version }}-${{ env.PACKAGE_TAG }}"
+          $version = "${{ inputs.version }}"
           
           nuget pack "$nuspecPath" -OutputDirectory "$outputDir" -Version "$version"
 
