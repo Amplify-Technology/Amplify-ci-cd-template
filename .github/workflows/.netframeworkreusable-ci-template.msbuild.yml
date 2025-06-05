@@ -1,0 +1,129 @@
+name: Reusable Build and Publish Template (.NET Framework)
+
+on:
+  workflow_call:
+    inputs:
+      projectRepo:
+        required: true
+        type: string
+      projectRef:
+        required: true
+        type: string
+      GITHUB_REPO_PAT:
+        required: true
+        type: string
+      projectPath:
+        required: true
+        type: string
+      nuspecPath:
+        required: true
+        type: string
+      packageId:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      AZURE_ARTIFACTS_PAT:
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  BUILD_CONFIGURATION: Release
+  NUGET_PACKAGE_PATH: amplifyNuget
+  NUGET_FEED_NAME: ArtifactsForGitHubWorkflows
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.projectRepo }}
+          ref: ${{ inputs.projectRef }}
+          token: ${{ inputs.GITHUB_REPO_PAT }}
+
+      - name: Setup NuGet
+        uses: nuget/setup-nuget@v2
+        with:
+          nuget-version: latest
+
+      - name: Set NuGet Feed URL Based on Branch
+        shell: bash
+        run: |
+          BRANCH="${GITHUB_REF##*/}"
+          if [[ "$BRANCH" == "dev" ]]; then
+            echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
+          elif [[ "$BRANCH" == "qa" ]]; then
+            echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
+          else
+            echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
+          fi
+
+      - name: Remove existing Azure Artifacts source (if exists)
+        run: |
+          nuget sources Remove -Name "${{ env.NUGET_FEED_NAME }}" || echo "No existing source to remove."
+
+      - name: Add Azure Artifacts source with credentials
+        shell: pwsh
+        run: |
+          nuget sources Add `
+            -Name "${{ env.NUGET_FEED_NAME }}" `
+            -Source "${{ env.NUGET_FEED_URL }}" `
+            -Username "any" `
+            -Password "${{ inputs.AZURE_ARTIFACTS_PAT }}" `
+            -StorePasswordInClearText
+
+      - name: Clean bin and obj directories
+        run: |
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
+            "${{ inputs.projectPath }}/bin", "${{ inputs.projectPath }}/obj"
+        shell: pwsh
+
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: |
+          $solutionDir = Split-Path "${{ inputs.projectPath }}"
+          nuget restore "${{ inputs.projectPath }}" -SolutionDirectory $solutionDir
+
+      - name: Build with MSBuild
+        shell: pwsh
+        run: |
+          $msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest `
+            -requires Microsoft.Component.MSBuild `
+            -find MSBuild\**\Bin\MSBuild.exe
+
+          Write-Host "Using MSBuild at: $msbuildPath"
+
+          & "$msbuildPath" `
+            "${{ inputs.projectPath }}" `
+            "/p:Configuration=${{ env.BUILD_CONFIGURATION }}" `
+            "/p:Platform=Any CPU" `
+            "/p:OutputPath=bin\Release"
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: dc8159ea-a733-4ef9-95e8-c93fcecc630c
+          tenant-id: b85142e0-e761-410a-ba40-cfe0e7ae5f5b
+          subscription-id: 3da04b10-b2a7-463f-b8bb-3af1142d3623
+
+      - name: Pack NuGet
+        run: |
+          nuget pack "${{ inputs.nuspecPath }}" `
+            -OutputDirectory ${{ env.NUGET_PACKAGE_PATH }} `
+            -Version ${{ inputs.version }}
+
+      - name: Push to Azure Artifacts
+        run: |
+          nuget push ${{ env.NUGET_PACKAGE_PATH }}/${{ inputs.packageId }}.${{ inputs.version }}.nupkg `
+            -Source "${{ env.NUGET_FEED_URL }}" `
+            -ApiKey AzureArtifacts `
+            -Verbosity detailed
