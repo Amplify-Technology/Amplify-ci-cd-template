@@ -106,11 +106,16 @@ jobs:
 
       - name: Pack with nuget.exe
         id: pack
+        shell: pwsh
         run: |
-          nuget pack "project/${{ inputs.nuspecPath }}" `
-            -OutputDirectory ${{ env.NUGET_PACKAGE_PATH }} `
-            -Version "${{ inputs.version }}-${{ env.PACKAGE_TAG }}"
-          echo "packagePath=${{ env.NUGET_PACKAGE_PATH }}/${{ inputs.packageId }}.${{ inputs.version }}-${{ env.PACKAGE_TAG }}.nupkg" >> $GITHUB_OUTPUT
+          $nuspecPath = "project/${{ inputs.nuspecPath }}"
+          $outputDir = "${{ env.NUGET_PACKAGE_PATH }}"
+          $version = "${{ inputs.version }}-${{ env.PACKAGE_TAG }}"
+          
+          nuget pack "$nuspecPath" -OutputDirectory "$outputDir" -Version "$version"
+
+          $packagePath = Join-Path "$outputDir" "${{ inputs.packageId }}.$version.nupkg"
+          echo "packagePath=$packagePath" >> $env:GITHUB_OUTPUT
 
       - name: Push to Azure Artifacts
         run: |
