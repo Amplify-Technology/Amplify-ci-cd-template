@@ -93,7 +93,9 @@ jobs:
           nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
 
       - name: Restore Packages
-        run: dotnet restore "project/${{ inputs.projectPath }}" --source "$env:NUGET_FEED_URL"
+        run: dotnet restore "project/${{ inputs.projectPath }}" `
+          --source "$env:NUGET_FEED_URL" `
+          --source "https://api.nuget.org/v3/index.json"
 
       - name: Build Project
         run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
@@ -134,7 +136,7 @@ jobs:
           $nuspecPath = "project/${{ inputs.nuspecPath }}"
           $outputDir = "${{ env.NUGET_PACKAGE_PATH }}"
           $version = "${{ inputs.version }}"
-          
+
           nuget pack "$nuspecPath" -OutputDirectory "$outputDir" -Version "$version"
 
           $packagePath = Join-Path "$outputDir" "${{ inputs.packageId }}.$version.nupkg"
