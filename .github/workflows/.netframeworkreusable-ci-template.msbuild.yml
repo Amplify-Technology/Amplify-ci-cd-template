@@ -6,9 +6,6 @@ on:
       projectRepo:
         required: true
         type: string
-      projectRef:
-        required: true
-        type: string
       GITHUB_REPO_PAT:
         required: true
         type: string
@@ -46,7 +43,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.projectRepo }}
-          ref: ${{ inputs.projectRef }}
           token: ${{ inputs.GITHUB_REPO_PAT }}
 
       - name: Setup NuGet
@@ -81,10 +77,10 @@ jobs:
             -StorePasswordInClearText
 
       - name: Clean bin and obj directories
+        shell: pwsh
         run: |
           Remove-Item -Recurse -Force -ErrorAction SilentlyContinue `
             "${{ inputs.projectPath }}/bin", "${{ inputs.projectPath }}/obj"
-        shell: pwsh
 
       - name: Restore NuGet packages
         shell: pwsh
