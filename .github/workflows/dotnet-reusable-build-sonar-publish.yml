@@ -122,7 +122,7 @@ jobs:
         continue-on-error: true
         run: |
           nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
-          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
+          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "any" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
 
       - name: Restore Packages
         run: dotnet restore "project/${{ inputs.projectPath }}" `
