@@ -46,7 +46,7 @@ jobs:
       NUGET_PACKAGE_PATH: amplifyNuget
       NUGET_FEED_NAME: ArtifactsForGitHubWorkflows
       AZURE_ARTIFACTS_PAT: ${{ inputs.AZURE_ARTIFACTS_PAT }}
-      SONAR_TOKEN: 3509007d5603160bf3a9d7123062ad89ac359246
+      SONAR_TOKEN: d8e9a929f2e39f20c691f62e798da8a7b2fb9d7f
 
     steps:
       - name: Checkout Project Repo
@@ -119,7 +119,6 @@ jobs:
           fi
 
       - name: Configure NuGet Source
-        continue-on-error: true
         run: |
           nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
           nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "any" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
