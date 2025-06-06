@@ -1,0 +1,187 @@
+name: Dotnet Reusable CI Build and Publish Template
+
+on:
+  workflow_call:
+    inputs:
+      projectRepo:
+        required: true
+        type: string
+      projectPath:
+        required: true
+        type: string
+      nuspecPath:
+        required: true
+        type: string
+      packageId:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      AZURE_ARTIFACTS_PAT:
+        required: true
+        type: string
+      GITHUB_REPO_PAT:
+        required: true
+        type: string
+
+    outputs:
+      nupkgPath:
+        description: "Path to generated .nupkg"
+        value: ${{ jobs.build-and-publish.outputs.nupkgPath }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    outputs:
+      nupkgPath: ${{ steps.pack.outputs.packagePath }}
+
+    env:
+      BUILD_CONFIGURATION: Release
+      DOTNET_VERSION: '8.0.x'
+      NUGET_PACKAGE_PATH: amplifyNuget
+      NUGET_FEED_NAME: ArtifactsForGitHubWorkflows
+      AZURE_ARTIFACTS_PAT: ${{ inputs.AZURE_ARTIFACTS_PAT }}
+      SONAR_TOKEN: 3509007d5603160bf3a9d7123062ad89ac359246
+
+    steps:
+      - name: Checkout Project Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.projectRepo }}
+          token: ${{ inputs.GITHUB_REPO_PAT }}
+          path: project
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~\sonar\cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Cache SonarCloud scanner
+        id: cache-sonar-scanner
+        uses: actions/cache@v4
+        with:
+          path: .\.sonar\scanner
+          key: ${{ runner.os }}-sonar-scanner
+          restore-keys: ${{ runner.os }}-sonar-scanner
+
+      - name: Install SonarCloud scanner
+        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          New-Item -Path .\.sonar\scanner -ItemType Directory -Force
+          dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
+
+      - name: Begin SonarCloud Analysis
+        shell: powershell
+        run: |
+          .\.sonar\scanner\dotnet-sonarscanner begin `
+            /k:"${{ inputs.packageId }}" `
+            /o:"your-org-key" `
+            /d:sonar.token="${{ env.SONAR_TOKEN }}" `
+            /d:sonar.host.url="https://sonarcloud.io"
+
+      - name: Install NuGet CLI
+        uses: nuget/setup-nuget@v2
+        with:
+          nuget-version: latest
+
+      - name: Set NuGet Feed URL and Stage from Branch
+        id: stage
+        shell: bash
+        run: |
+          BRANCH_NAME="${GITHUB_REF##*/}"
+          echo "Branch is $BRANCH_NAME"
+
+          if [[ "$BRANCH_NAME" == "dev" ]]; then
+            echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
+            echo "stage=Dev" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH_NAME" == "qa" ]]; then
+            echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
+            echo "stage=QA" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH_NAME" == "prod" ]]; then
+            echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
+            echo "stage=Prod" >> $GITHUB_OUTPUT
+          else
+            echo "Invalid or unsupported branch: $BRANCH_NAME"
+            exit 1
+          fi
+
+      - name: Configure NuGet Source
+        continue-on-error: true
+        run: |
+          nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
+          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
+
+      - name: Restore Packages
+        run: dotnet restore "project/${{ inputs.projectPath }}" `
+          --source "$env:NUGET_FEED_URL" `
+          --source "https://api.nuget.org/v3/index.json"
+
+      - name: Build Project
+        run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+      - name: End SonarCloud Analysis
+        shell: powershell
+        run: |
+          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: dc8159ea-a733-4ef9-95e8-c93fcecc630c
+          tenant-id: b85142e0-e761-410a-ba40-cfe0e7ae5f5b
+          subscription-id: 3da04b10-b2a7-463f-b8bb-3af1142d3623
+
+      - name: Update .nuspec with tags only (no change to ID)
+        shell: pwsh
+        run: |
+          $stage = '${{ steps.stage.outputs.stage }}'
+          $projectName = [System.IO.Path]::GetFileNameWithoutExtension('${{ inputs.nuspecPath }}')
+
+          Get-ChildItem -Recurse -Filter *.nuspec | ForEach-Object {
+            $path = $_.FullName
+            $content = Get-Content $path -Raw
+
+            $tagsValue = "$projectName $stage"
+
+            if ($content -match '<tags>([^<]*)</tags>') {
+              $content = $content -replace "<tags>.*?</tags>", "<tags>$tagsValue</tags>"
+            } else {
+              $content = $content -replace '(</description>)', "`$1`n    <tags>$tagsValue</tags>"
+            }
+
+            Set-Content -Path $path -Value $content
+            Write-Host "Updated tags to: $tagsValue"
+          }
+
+      - name: Pack with nuget.exe
+        id: pack
+        shell: pwsh
+        run: |
+          $nuspecPath = "project/${{ inputs.nuspecPath }}"
+          $outputDir = "${{ env.NUGET_PACKAGE_PATH }}"
+          $version = "${{ inputs.version }}"
+
+          nuget pack "$nuspecPath" -OutputDirectory "$outputDir" -Version "$version"
+
+          $packagePath = Join-Path "$outputDir" "${{ inputs.packageId }}.$version.nupkg"
+          echo "packagePath=$packagePath" >> $env:GITHUB_OUTPUT
+
+      - name: Push to Azure Artifacts
+        run: |
+          nuget push "${{ steps.pack.outputs.packagePath }}" `
+            -Source "$env:NUGET_FEED_URL" `
+            -ApiKey AzureArtifacts `
+            -Verbosity detailed
