@@ -86,11 +86,14 @@ jobs:
       - name: Begin SonarCloud Analysis
         shell: powershell
         run: |
-          .\.sonar\scanner\dotnet-sonarscanner begin `
-            /k:"${{ inputs.packageId }}" `
-            /o:"amplify-technology" `
-            /d:sonar.token="${{ env.SONAR_TOKEN }}" `
-            /d:sonar.host.url="https://sonarcloud.io"
+         .\.sonar\scanner\dotnet-sonarscanner begin `
+          /k:"${{ inputs.packageId }}" `
+          /o:"amplify-technology" `
+          /d:sonar.token="${{ env.SONAR_TOKEN }}" `
+          /d:sonar.host.url="https://sonarcloud.io" `
+          /d:sonar.inclusions=**/*.cs `
+          /d:sonar.exclusions=**/bin/**,**/obj/** `
+          /d:sonar.verbose=true
 
       - name: Install NuGet CLI
         uses: nuget/setup-nuget@v2
