@@ -172,9 +172,10 @@ jobs:
           $nuspecPath = "project/${{ inputs.nuspecPath }}"
           $outputDir = "${{ env.NUGET_PACKAGE_PATH }}"
           $version = "${{ steps.nuspec.outputs.version }}"
-          $stage = "${{ steps.stage.outputs.stage }}"
+
           nuget pack "$nuspecPath" -OutputDirectory "$outputDir" -Version "$version"
-          $packagePath = Join-Path "$outputDir" "${{ steps.nuspec.outputs.id }}-$stage.$version.nupkg"
+
+          $packagePath = Join-Path "$outputDir" "${{ steps.nuspec.outputs.id }}.$version.nupkg"
           echo "packagePath=$packagePath" >> $env:GITHUB_OUTPUT
 
       - name: Push Package to Azure Artifacts
