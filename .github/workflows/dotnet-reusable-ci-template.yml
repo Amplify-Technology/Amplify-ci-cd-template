@@ -12,13 +12,13 @@ on:
       nuspecPath:
         required: true
         type: string
-      azureArtifactsPat:
+      AZURE_ARTIFACTS_PAT:
         required: true
         type: string
-      githubRepoPat:
+      GITHUB_REPO_PAT:
         required: true
         type: string
-      sonarToken:
+      SONAR_TOKEN:
         required: true
         type: string
 
@@ -42,9 +42,9 @@ jobs:
       DOTNET_VERSION: '8.0.x'
       NUGET_PACKAGE_PATH: amplifyNuget
       NUGET_FEED_NAME: ArtifactsForGitHubWorkflows
-      AZURE_ARTIFACTS_PAT: ${{ inputs.azureArtifactsPat }}
-      GITHUB_REPO_PAT: ${{ inputs.githubRepoPat }}
-      SONAR_TOKEN: ${{ inputs.sonarToken }}
+      AZURE_ARTIFACTS_PAT: ${{ inputs.AZURE_ARTIFACTS_PAT }}
+      GITHUB_REPO_PAT: ${{ inputs.GITHUB_REPO_PAT }}
+      SONAR_TOKEN: ${{ inputs.SONAR_TOKEN }}
 
     steps:
       - name: Checkout Project Repo
