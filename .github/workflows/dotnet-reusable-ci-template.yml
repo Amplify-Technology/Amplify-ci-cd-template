@@ -113,13 +113,13 @@ jobs:
           BRANCH_NAME="${GITHUB_REF##*/}"
           echo "Branch is $BRANCH_NAME"
 
-          if [[ "$BRANCH_NAME" == "dev" ]]; then
+          if [[ "$BRANCH_NAME" == "dev" || "$BRANCH_NAME" == "main" ]]; then
             echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
             echo "stage=Dev" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH_NAME" == "qa" ]]; then
+            elif [[ "$BRANCH_NAME" == "qa" ]]; then
             echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
             echo "stage=QA" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH_NAME" == "prod" ]]; then
+            elif [[ "$BRANCH_NAME" == "prod" ]]; then
             echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
             echo "stage=Prod" >> $GITHUB_OUTPUT
           else
