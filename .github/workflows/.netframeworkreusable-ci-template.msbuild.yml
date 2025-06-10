@@ -15,13 +15,10 @@ on:
       nuspecPath:
         required: true
         type: string
-      packageId:
-        required: true
-        type: string
-      version:
-        required: true
-        type: string
       AZURE_ARTIFACTS_PAT:
+        required: true
+        type: string
+      SONAR_TOKEN:
         required: true
         type: string
 
@@ -38,6 +35,9 @@ jobs:
   build-and-publish:
     runs-on: windows-latest
 
+    env:
+      SONAR_TOKEN: ${{ inputs.SONAR_TOKEN }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,6 +49,41 @@ jobs:
         uses: nuget/setup-nuget@v2
         with:
           nuget-version: latest
+
+      - name: Cache SonarCloud scanner
+        id: cache-sonar-scanner
+        uses: actions/cache@v4
+        with:
+          path: .\.sonar\scanner
+          key: ${{ runner.os }}-sonar-scanner
+          restore-keys: ${{ runner.os }}-sonar-scanner
+
+      - name: Install SonarCloud scanner
+        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          New-Item -Path .\.sonar\scanner -ItemType Directory -Force
+          dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
+
+      - name: Read packageId and version from .nuspec
+        id: nuspec
+        shell: pwsh
+        run: |
+          [xml]$nuspec = Get-Content "${{ inputs.nuspecPath }}"
+          $id = $nuspec.package.metadata.id
+          $version = $nuspec.package.metadata.version
+          echo "id=$id" >> $env:GITHUB_OUTPUT
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Begin SonarCloud Analysis
+        shell: powershell
+        run: |
+          .\.sonar\scanner\dotnet-sonarscanner begin `
+            /k:"${{ steps.nuspec.outputs.id }}" `
+            /o:"amplify-technology" `
+            /d:sonar.token="${{ env.SONAR_TOKEN }}" `
+            /d:sonar.host.url="https://sonarcloud.io" `
+            /d:sonar.verbose=true
 
       - name: Set NuGet Feed URL Based on Branch
         shell: bash
@@ -103,6 +138,11 @@ jobs:
             "/p:Configuration=${{ env.BUILD_CONFIGURATION }}" `
             "/p:Platform=Any CPU" `
             "/p:OutputPath=bin\Release"
+
+      - name: End SonarCloud Analysis
+        shell: powershell
+        run: |
+          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Azure Login
         uses: azure/login@v2
