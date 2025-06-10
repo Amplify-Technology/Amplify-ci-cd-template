@@ -59,46 +59,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Install NuGet CLI
-        uses: nuget/setup-nuget@v2
-        with:
-          nuget-version: latest
-
-      - name: Set NuGet Feed URL and Stage from Branch
-        id: stage
-        shell: bash
-        run: |
-          BRANCH_NAME="${GITHUB_REF##*/}"
-          echo "Branch is $BRANCH_NAME"
-
-          if [[ "$BRANCH_NAME" == "dev" ]]; then
-            echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
-            echo "stage=Dev" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH_NAME" == "qa" ]]; then
-            echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
-            echo "stage=QA" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH_NAME" == "prod" ]]; then
-            echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
-            echo "stage=Prod" >> $GITHUB_OUTPUT
-          else
-            echo "Invalid or unsupported branch: $BRANCH_NAME"
-            exit 1
-          fi
-
-      - name: Configure NuGet Source
-        continue-on-error: true
-        run: |
-          nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
-          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
-
-      - name: Restore Packages
-        run: dotnet restore "project/${{ inputs.projectPath }}" `
-          --source "$env:NUGET_FEED_URL" `
-          --source "https://api.nuget.org/v3/index.json"
-
-      - name: Build Project
-        run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
-
       - name: Cache SonarCloud packages
         uses: actions/cache@v4
         with:
@@ -140,6 +100,51 @@ jobs:
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
             /d:sonar.host.url="https://sonarcloud.io" `
             /d:sonar.verbose=true
+
+      - name: Install NuGet CLI
+        uses: nuget/setup-nuget@v2
+        with:
+          nuget-version: latest
+
+      - name: Set NuGet Feed URL and Stage from Branch
+        id: stage
+        shell: bash
+        run: |
+          BRANCH_NAME="${GITHUB_REF##*/}"
+          echo "Branch is $BRANCH_NAME"
+
+          if [[ "$BRANCH_NAME" == "dev" ]]; then
+            echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
+            echo "stage=Dev" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH_NAME" == "qa" ]]; then
+            echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
+            echo "stage=QA" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH_NAME" == "prod" ]]; then
+            echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
+            echo "stage=Prod" >> $GITHUB_OUTPUT
+          else
+            echo "Invalid or unsupported branch: $BRANCH_NAME"
+            exit 1
+          fi
+
+      - name: Configure NuGet Source
+        continue-on-error: true
+        run: |
+          nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
+          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
+
+      - name: Restore Packages
+        run: dotnet restore "project/${{ inputs.projectPath }}" `
+          --source "$env:NUGET_FEED_URL" `
+          --source "https://api.nuget.org/v3/index.json"
+
+      - name: Build Project
+        run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+
+      - name: End SonarCloud Analysis
+        shell: powershell
+        run: |
+          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Azure Login
         uses: azure/login@v2
@@ -184,8 +189,3 @@ jobs:
             -Source "$env:NUGET_FEED_URL" `
             -ApiKey AzureArtifacts `
             -Verbosity detailed
-
-      - name: End SonarCloud Analysis
-        shell: powershell
-        run: |
-          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
