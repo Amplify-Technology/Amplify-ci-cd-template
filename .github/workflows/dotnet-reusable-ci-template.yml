@@ -12,7 +12,13 @@ on:
       nuspecPath:
         required: true
         type: string
-      GITHUB_REPO_PAT:
+      azureArtifactsPat:
+        required: true
+        type: string
+      githubRepoPat:
+        required: true
+        type: string
+      sonarToken:
         required: true
         type: string
 
@@ -36,15 +42,16 @@ jobs:
       DOTNET_VERSION: '8.0.x'
       NUGET_PACKAGE_PATH: amplifyNuget
       NUGET_FEED_NAME: ArtifactsForGitHubWorkflows
-      AZURE_ARTIFACTS_PAT: ${{ secrets.AZURE_ARTIFACTS_PAT }}
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      AZURE_ARTIFACTS_PAT: ${{ inputs.azureArtifactsPat }}
+      GITHUB_REPO_PAT: ${{ inputs.githubRepoPat }}
+      SONAR_TOKEN: ${{ inputs.sonarToken }}
 
     steps:
       - name: Checkout Project Repo
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.projectRepo }}
-          token: ${{ inputs.GITHUB_REPO_PAT }}
+          token: ${{ env.GITHUB_REPO_PAT }}
           path: project
 
       - name: Setup .NET SDK
@@ -114,6 +121,16 @@ jobs:
           New-Item -Path .\.sonar\scanner -ItemType Directory -Force
           dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
 
+      - name: Read packageId and version from .nuspec
+        id: nuspec
+        shell: pwsh
+        run: |
+          [xml]$nuspec = Get-Content "project/${{ inputs.nuspecPath }}"
+          $id = $nuspec.package.metadata.id
+          $version = $nuspec.package.metadata.version
+          echo "id=$id" >> $env:GITHUB_OUTPUT
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
       - name: Begin SonarCloud Analysis
         shell: powershell
         run: |
@@ -131,41 +148,22 @@ jobs:
           tenant-id: b85142e0-e761-410a-ba40-cfe0e7ae5f5b
           subscription-id: 3da04b10-b2a7-463f-b8bb-3af1142d3623
 
-      - name: Update .nuspec with tags only (no change to ID)
+      - name: Update .nuspec with tags
         shell: pwsh
         run: |
           $stage = '${{ steps.stage.outputs.stage }}'
           $projectName = [System.IO.Path]::GetFileNameWithoutExtension('${{ inputs.nuspecPath }}')
-
           Get-ChildItem -Recurse -Filter *.nuspec | ForEach-Object {
             $path = $_.FullName
             $content = Get-Content $path -Raw
-
             $tagsValue = "$projectName $stage"
-
             if ($content -match '<tags>([^<]*)</tags>') {
               $content = $content -replace "<tags>.*?</tags>", "<tags>$tagsValue</tags>"
             } else {
               $content = $content -replace '(</description>)', "`$1`n    <tags>$tagsValue</tags>"
             }
-
             Set-Content -Path $path -Value $content
-            Write-Host "Updated tags to: $tagsValue"
           }
-
-      - name: Read packageId and version from .nuspec
-        id: nuspec
-        shell: pwsh
-        run: |
-          [xml]$nuspec = Get-Content "project/${{ inputs.nuspecPath }}"
-          $id = $nuspec.package.metadata.id
-          $version = $nuspec.package.metadata.version
-
-          Write-Host "Package ID: $id"
-          Write-Host "Version: $version"
-
-          echo "id=$id" >> $env:GITHUB_OUTPUT
-          echo "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Pack NuGet Package
         id: pack
@@ -175,9 +173,7 @@ jobs:
           $outputDir = "${{ env.NUGET_PACKAGE_PATH }}"
           $version = "${{ steps.nuspec.outputs.version }}"
           $stage = "${{ steps.stage.outputs.stage }}"
-
           nuget pack "$nuspecPath" -OutputDirectory "$outputDir" -Version "$version"
-
           $packagePath = Join-Path "$outputDir" "${{ steps.nuspec.outputs.id }}-$stage.$version.nupkg"
           echo "packagePath=$packagePath" >> $env:GITHUB_OUTPUT
 
