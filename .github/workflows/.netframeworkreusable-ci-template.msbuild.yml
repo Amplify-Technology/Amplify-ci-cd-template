@@ -121,15 +121,22 @@ jobs:
           tenant-id: b85142e0-e761-410a-ba40-cfe0e7ae5f5b
           subscription-id: 3da04b10-b2a7-463f-b8bb-3af1142d3623
 
-      - name: Pack NuGet
+      - name: Pack NuGet Package
+        id: pack
+        shell: pwsh
         run: |
-          nuget pack "${{ inputs.nuspecPath }}" `
-            -OutputDirectory ${{ env.NUGET_PACKAGE_PATH }} `
-            -Version ${{ inputs.version }}
+          $nuspecPath = "project/${{ inputs.nuspecPath }}"
+          $outputDir = "${{ env.NUGET_PACKAGE_PATH }}"
+          $version = "${{ steps.nuspec.outputs.version }}"
 
-      - name: Push to Azure Artifacts
+          nuget pack "$nuspecPath" -OutputDirectory "$outputDir" -Version "$version"
+
+          $packagePath = Join-Path "$outputDir" "${{ steps.nuspec.outputs.id }}.$version.nupkg"
+          echo "packagePath=$packagePath" >> $env:GITHUB_OUTPUT
+
+      - name: Push Package to Azure Artifacts
         run: |
-          nuget push ${{ env.NUGET_PACKAGE_PATH }}/${{ inputs.packageId }}.${{ inputs.version }}.nupkg `
-            -Source "${{ env.NUGET_FEED_URL }}" `
+          nuget push "${{ steps.pack.outputs.packagePath }}" `
+            -Source "$env:NUGET_FEED_URL" `
             -ApiKey AzureArtifacts `
             -Verbosity detailed
