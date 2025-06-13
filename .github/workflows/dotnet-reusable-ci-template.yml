@@ -98,7 +98,7 @@ jobs:
             /k:"${{ steps.nuspec.outputs.id }}" `
             /o:"amplify-technology" `
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
-            /d:sonar.host.url="https://sonarcloud.io" `
+            /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000/projects" `
             /d:sonar.verbose=true
 
       - name: Install NuGet CLI
