@@ -59,27 +59,19 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Cache SonarCloud packages
-        uses: actions/cache@v4
+      - name: Setup Java 17 for Sonar
+        uses: actions/setup-java@v3
         with:
-          path: ~\sonar\cache
-          key: ${{ runner.os }}-sonar
-          restore-keys: ${{ runner.os }}-sonar
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Cache SonarCloud scanner
-        id: cache-sonar-scanner
-        uses: actions/cache@v4
-        with:
-          path: .\.sonar\scanner
-          key: ${{ runner.os }}-sonar-scanner
-          restore-keys: ${{ runner.os }}-sonar-scanner
+      - name: Verify Java Version
+        run: java -version
 
       - name: Install SonarCloud scanner
-        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
         shell: powershell
         run: |
-          New-Item -Path .\.sonar\scanner -ItemType Directory -Force
-          dotnet tool update dotnet-sonarscanner --tool-path .\.sonar\scanner
+          dotnet tool install --global dotnet-sonarscanner
 
       - name: Read packageId and version from .nuspec
         id: nuspec
@@ -94,16 +86,11 @@ jobs:
       - name: Begin SonarCloud Analysis
         shell: powershell
         run: |
-          .\.sonar\scanner\dotnet-sonarscanner begin `
+          dotnet-sonarscanner begin `
             /k:"${{ steps.nuspec.outputs.id }}" `
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
             /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
             /d:sonar.verbose=true
-
-      - name: Install NuGet CLI
-        uses: nuget/setup-nuget@v2
-        with:
-          nuget-version: latest
 
       - name: Set NuGet Feed URL and Stage from Branch
         id: stage
@@ -115,10 +102,10 @@ jobs:
           if [[ "$BRANCH_NAME" == "dev" || "$BRANCH_NAME" == "main" ]]; then
             echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
             echo "stage=Dev" >> $GITHUB_OUTPUT
-            elif [[ "$BRANCH_NAME" == "qa" ]]; then
+          elif [[ "$BRANCH_NAME" == "qa" ]]; then
             echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
             echo "stage=QA" >> $GITHUB_OUTPUT
-            elif [[ "$BRANCH_NAME" == "prod" ]]; then
+          elif [[ "$BRANCH_NAME" == "prod" ]]; then
             echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
             echo "stage=Prod" >> $GITHUB_OUTPUT
           else
@@ -127,7 +114,6 @@ jobs:
           fi
 
       - name: Configure NuGet Source
-        continue-on-error: true
         run: |
           nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
           nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
@@ -143,31 +129,7 @@ jobs:
       - name: End SonarCloud Analysis
         shell: powershell
         run: |
-          .\.sonar\scanner\dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: dc8159ea-a733-4ef9-95e8-c93fcecc630c
-          tenant-id: b85142e0-e761-410a-ba40-cfe0e7ae5f5b
-          subscription-id: 3da04b10-b2a7-463f-b8bb-3af1142d3623
-
-      - name: Update .nuspec with tags
-        shell: pwsh
-        run: |
-          $stage = '${{ steps.stage.outputs.stage }}'
-          $projectName = [System.IO.Path]::GetFileNameWithoutExtension('${{ inputs.nuspecPath }}')
-          Get-ChildItem -Recurse -Filter *.nuspec | ForEach-Object {
-            $path = $_.FullName
-            $content = Get-Content $path -Raw
-            $tagsValue = "$projectName $stage"
-            if ($content -match '<tags>([^<]*)</tags>') {
-              $content = $content -replace "<tags>.*?</tags>", "<tags>$tagsValue</tags>"
-            } else {
-              $content = $content -replace '(</description>)', "`$1`n    <tags>$tagsValue</tags>"
-            }
-            Set-Content -Path $path -Value $content
-          }
+          dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Pack NuGet Package
         id: pack
