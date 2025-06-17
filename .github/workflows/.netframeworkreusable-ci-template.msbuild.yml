@@ -63,14 +63,16 @@ jobs:
       - name: Set NuGet Feed URL Based on Branch
         shell: bash
         run: |
-          BRANCH="${GITHUB_REF##*/}"
-          if [[ "$BRANCH" == "dev" || "$BRANCH" == "feature/shared-proj"]]; then
-            echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
-          elif [[ "$BRANCH" == "qa" ]]; then
-            echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
-          else
-            echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
-          fi
+         BRANCH="${GITHUB_REF##*/}"
+          echo "Current branch: $BRANCH"
+
+         if [[ "$BRANCH" == "dev" || "$BRANCH" == "feature/shared-proj" ]]; then
+         echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
+         elif [[ "$BRANCH" == "qa" ]]; then
+         echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
+         else
+         echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
+         fi
 
       - name: Remove existing Azure Artifacts source (if exists)
         run: |
