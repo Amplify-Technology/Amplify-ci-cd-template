@@ -64,7 +64,7 @@ jobs:
         shell: bash
         run: |
           BRANCH="${GITHUB_REF##*/}"
-          if [[ "$BRANCH" == "dev" ]]; then
+          if [[ "$BRANCH" == "dev" || "$BRANCH_NAME" == "feature/shared-proj"]]; then
             echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
           elif [[ "$BRANCH" == "qa" ]]; then
             echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
