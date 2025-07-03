@@ -59,20 +59,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Setup Java 17 for Sonar
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Verify Java Version
-        run: java -version
-
-      - name: Install SonarCloud scanner
-        shell: powershell
-        run: |
-          dotnet tool install --global dotnet-sonarscanner
-
       - name: Read packageId and version from .nuspec
         id: nuspec
         shell: pwsh
@@ -82,15 +68,6 @@ jobs:
           $version = $nuspec.package.metadata.version
           echo "id=$id" >> $env:GITHUB_OUTPUT
           echo "version=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Begin SonarCloud Analysis
-        shell: powershell
-        run: |
-          dotnet-sonarscanner begin `
-            /k:"${{ steps.nuspec.outputs.id }}" `
-            /d:sonar.token="${{ env.SONAR_TOKEN }}" `
-            /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
-            /d:sonar.verbose=true
 
       - name: Set NuGet Feed URL and Stage from Branch
         id: stage
@@ -125,11 +102,6 @@ jobs:
 
       - name: Build Project
         run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
-
-      - name: End SonarCloud Analysis
-        shell: powershell
-        run: |
-          dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Pack NuGet Package
         id: pack
