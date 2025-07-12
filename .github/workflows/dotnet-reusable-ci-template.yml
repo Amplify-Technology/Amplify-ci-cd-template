@@ -9,9 +9,6 @@ on:
       projectPath:
         required: true
         type: string
-      nuspecPath:
-        required: true
-        type: string
       AZURE_ARTIFACTS_PAT:
         required: true
         type: string
@@ -59,16 +56,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Read packageId and version from .nuspec
-        id: nuspec
-        shell: pwsh
-        run: |
-          [xml]$nuspec = Get-Content "project/${{ inputs.nuspecPath }}"
-          $id = $nuspec.package.metadata.id
-          $version = $nuspec.package.metadata.version
-          echo "id=$id" >> $env:GITHUB_OUTPUT
-          echo "version=$version" >> $env:GITHUB_OUTPUT
-
       - name: Set NuGet Feed URL and Stage from Branch
         id: stage
         shell: bash
@@ -93,7 +80,7 @@ jobs:
       - name: Configure NuGet Source
         run: |
           nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
-          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "kiyer@amppf.com" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
+          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "dummy" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
 
       - name: Restore Packages
         run: dotnet restore "project/${{ inputs.projectPath }}" `
@@ -103,22 +90,21 @@ jobs:
       - name: Build Project
         run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
-      - name: Pack NuGet Package
+      - name: Pack NuGet Package (use .csproj version)
         id: pack
-        shell: pwsh
         run: |
-          $nuspecPath = "project/${{ inputs.nuspecPath }}"
-          $outputDir = "${{ env.NUGET_PACKAGE_PATH }}"
-          $version = "${{ steps.nuspec.outputs.version }}"
+          dotnet pack "project/${{ inputs.projectPath }}" `
+            --configuration ${{ env.BUILD_CONFIGURATION }} `
+            --no-build `
+            --output ${{ env.NUGET_PACKAGE_PATH }}
 
-          nuget pack "$nuspecPath" -OutputDirectory "$outputDir" -Version "$version"
-
-          $packagePath = Join-Path "$outputDir" "${{ steps.nuspec.outputs.id }}.$version.nupkg"
-          echo "packagePath=$packagePath" >> $env:GITHUB_OUTPUT
+          PACKAGE_PATH=$(find ${{ env.NUGET_PACKAGE_PATH }} -name "*.nupkg")
+          echo "packagePath=$PACKAGE_PATH" >> $GITHUB_OUTPUT
 
       - name: Push Package to Azure Artifacts
         run: |
-          nuget push "${{ steps.pack.outputs.packagePath }}" `
-            -Source "$env:NUGET_FEED_URL" `
-            -ApiKey AzureArtifacts `
-            -Verbosity detailed
+          dotnet nuget push "${{ steps.pack.outputs.packagePath }}" `
+            --source "$env:NUGET_FEED_URL" `
+            --api-key AzureArtifacts `
+            --skip-duplicate `
+            --verbosity detailed
