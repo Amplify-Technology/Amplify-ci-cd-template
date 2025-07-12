@@ -94,18 +94,17 @@ jobs:
         id: pack
         shell: pwsh
         run: |
-         dotnet pack "project/${{ inputs.projectPath }}" `
-         --configuration ${{ env.BUILD_CONFIGURATION }} `
-         --no-build `
-         --output ${{ env.NUGET_PACKAGE_PATH }}
+          dotnet pack "project/${{ inputs.projectPath }}" `
+            --configuration ${{ env.BUILD_CONFIGURATION }} `
+            --no-build `
+            --output ${{ env.NUGET_PACKAGE_PATH }}
 
-         $PACKAGE_PATH = Get-ChildItem -Path ${{ env.NUGET_PACKAGE_PATH }} -Filter *.nupkg -Recurse | Select-Object -First 1 -ExpandProperty FullName
-         echo "packagePath=$PACKAGE_PATH" >> $env:GITHUB_OUTPUT
+          $PACKAGE_PATH = Get-ChildItem -Path ${{ env.NUGET_PACKAGE_PATH }} -Filter *.nupkg -Recurse | Select-Object -First 1 -ExpandProperty FullName
+          echo "packagePath=$PACKAGE_PATH" >> $env:GITHUB_OUTPUT
 
-         - name: Push Package to Azure Artifacts
-           run: |
-            dotnet nuget push "${{ steps.pack.outputs.packagePath }}" `
+      - name: Push Package to Azure Artifacts
+        run: |
+          dotnet nuget push "${{ steps.pack.outputs.packagePath }}" `
             --source "$env:NUGET_FEED_URL" `
             --api-key AzureArtifacts `
             --skip-duplicate
-
