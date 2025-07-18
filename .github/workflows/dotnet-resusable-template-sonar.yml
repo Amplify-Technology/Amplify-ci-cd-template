@@ -66,11 +66,23 @@ jobs:
         shell: powershell
         run: dotnet tool install --global dotnet-sonarscanner
 
+      - name: Extract Project Key from .csproj
+        id: project_info
+        shell: pwsh
+        run: |
+          $csprojPath = "project/${{ inputs.projectPath }}"
+          [xml]$proj = Get-Content $csprojPath
+          $assemblyName = $proj.Project.PropertyGroup.AssemblyName
+          if (-not $assemblyName) {
+            $assemblyName = [System.IO.Path]::GetFileNameWithoutExtension($csprojPath)
+          }
+          echo "projectKey=$assemblyName" >> $env:GITHUB_OUTPUT
+
       - name: Begin SonarCloud Analysis
         shell: powershell
         run: |
           dotnet-sonarscanner begin `
-            /k:"your-sonar-project-key" `
+            /k:"${{ steps.project_info.outputs.projectKey }}" `
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
             /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
             /d:sonar.verbose=true
