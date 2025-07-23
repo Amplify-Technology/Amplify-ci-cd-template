@@ -110,7 +110,7 @@ jobs:
             --skip-duplicate
 
       - name: Create PR to dev after code review and conflict resolution
-        if: github.ref != 'refs/heads/dev' && github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/heads/feature/') && github.event_name == 'workflow_dispatch'
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ env.GITHUB_REPO_PAT }}
