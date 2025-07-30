@@ -1,28 +1,7 @@
-name: Dotnet Reusable CI Build and Publish Template
+name: Dotnet CI for Pull Request with SonarQube and Lint
 
 on:
-  workflow_call:
-    inputs:
-      projectRepo:
-        required: true
-        type: string
-      projectPath:
-        required: true
-        type: string
-      AZURE_ARTIFACTS_PAT:
-        required: true
-        type: string
-      GITHUB_REPO_PAT:
-        required: true
-        type: string
-      SONAR_TOKEN:
-        required: true
-        type: string
-
-    outputs:
-      nupkgPath:
-        description: "Path to generated .nupkg"
-        value: ${{ jobs.build-and-publish.outputs.nupkgPath }}
+  pull_request:
 
 permissions:
   id-token: write
@@ -30,122 +9,76 @@ permissions:
   pull-requests: write
 
 jobs:
-  build-and-publish:
+  build-and-analyze:
     runs-on: windows-latest
-    outputs:
-      nupkgPath: ${{ steps.pack.outputs.packagePath }}
 
     env:
       BUILD_CONFIGURATION: Release
       DOTNET_VERSION: '8.0.x'
-      NUGET_PACKAGE_PATH: amplifyNuget
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      AZURE_ARTIFACTS_PAT: ${{ secrets.AZURE_ARTIFACTS_PAT }}
+      NUGET_FEED_URL: https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json
       NUGET_FEED_NAME: ArtifactsForGitHubWorkflows
-      AZURE_ARTIFACTS_PAT: ${{ inputs.AZURE_ARTIFACTS_PAT }}
-      GITHUB_REPO_PAT: ${{ inputs.GITHUB_REPO_PAT }}
-      SONAR_TOKEN: ${{ inputs.SONAR_TOKEN }}
 
     steps:
-      - name: Checkout Project Repo
+      - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.projectRepo }}
-          token: ${{ env.GITHUB_REPO_PAT }}
-          path: project
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Setup Java for SonarQube
+      - name: Setup Java for Sonar
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Install SonarQube Scanner
-        shell: powershell
         run: dotnet tool install --global dotnet-sonarscanner
 
-      - name: Extract Project Key from .csproj
+      - name: Get Project Key from .csproj
         id: project_info
         shell: pwsh
         run: |
-          $csprojPath = "project/${{ inputs.projectPath }}"
-          [xml]$proj = Get-Content $csprojPath
-          $assemblyName = $proj.Project.PropertyGroup.AssemblyName
-          if (-not $assemblyName) {
-            $assemblyName = [System.IO.Path]::GetFileNameWithoutExtension($csprojPath)
+          [xml]$proj = Get-Content *.csproj
+          $key = $proj.Project.PropertyGroup.AssemblyName
+          if (-not $key) {
+            $key = (Get-Item *.csproj).BaseName
           }
-          echo "projectKey=$assemblyName" >> $env:GITHUB_OUTPUT
+          echo "projectKey=$key" >> $env:GITHUB_OUTPUT
 
-      - name: Determine Branch Context
-        id: context
-        shell: bash
-        run: |
-          echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF##*/}}" >> $GITHUB_OUTPUT
-          echo "baseBranch=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
-          echo "prNumber=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-
-      - name: Begin SonarQube Analysis (PR Mode)
-        if: github.event_name == 'pull_request'
-        shell: powershell
+      - name: SonarQube PR Analysis Start
         run: |
           dotnet-sonarscanner begin `
             /k:"${{ steps.project_info.outputs.projectKey }}" `
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
             /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
-            /d:sonar.verbose=true `
-            /d:sonar.pullrequest.key=${{ steps.context.outputs.prNumber }} `
-            /d:sonar.pullrequest.branch=${{ steps.context.outputs.branch }} `
-            /d:sonar.pullrequest.base=${{ steps.context.outputs.baseBranch }} `
+            /d:sonar.pullrequest.key=${{ github.event.pull_request.number }} `
+            /d:sonar.pullrequest.branch=${{ github.head_ref }} `
+            /d:sonar.pullrequest.base=${{ github.base_ref }} `
             /d:sonar.pullrequest.github.repository=${{ github.repository }}
 
-      - name: Begin SonarQube Analysis (Non-PR)
-        if: github.event_name != 'pull_request'
-        shell: powershell
-        run: |
-          dotnet-sonarscanner begin `
-            /k:"${{ steps.project_info.outputs.projectKey }}" `
-            /d:sonar.token="${{ env.SONAR_TOKEN }}" `
-            /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
-            /d:sonar.verbose=true `
-            /d:sonar.branch.name=${{ steps.context.outputs.branch }}
+      - name: Run Linting
+        run: dotnet format --verify-no-changes --severity info
 
-      - name: Configure NuGet Feed
-        run: |
-          nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
-          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "dummy" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
-
-      - name: Restore Packages
-        run: dotnet restore "project/${{ inputs.projectPath }}" `
-          --source "https://api.nuget.org/v3/index.json"
-
-      - name: Run Linting (dotnet format)
-        run: dotnet format "project/${{ inputs.projectPath }}" --verify-no-changes --severity info
+      - name: Restore Dependencies
+        run: dotnet restore
 
       - name: Build Project
-        run: dotnet build "project/${{ inputs.projectPath }}" --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+        run: dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
       - name: End SonarQube Analysis
-        shell: powershell
         run: dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Pack NuGet Package
-        id: pack
-        shell: pwsh
         run: |
-          dotnet pack "project/${{ inputs.projectPath }}" `
-            --configuration ${{ env.BUILD_CONFIGURATION }} `
-            --no-build `
-            --output ${{ env.NUGET_PACKAGE_PATH }}
+          dotnet pack --configuration ${{ env.BUILD_CONFIGURATION }} --output out
 
-          $PACKAGE_PATH = Get-ChildItem -Path ${{ env.NUGET_PACKAGE_PATH }} -Filter *.nupkg -Recurse | Select-Object -First 1 -ExpandProperty FullName
-          echo "packagePath=$PACKAGE_PATH" >> $env:GITHUB_OUTPUT
-
-      - name: Push Package to Azure Artifacts
+      - name: Push to Azure Artifacts
         run: |
-          dotnet nuget push "${{ steps.pack.outputs.packagePath }}" `
-            --source "$env:NUGET_FEED_URL" `
+          dotnet nuget push "out/*.nupkg" `
+            --source "${{ env.NUGET_FEED_URL }}" `
             --api-key AzureArtifacts `
             --skip-duplicate
