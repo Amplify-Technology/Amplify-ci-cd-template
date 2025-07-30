@@ -27,6 +27,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  pull-requests: write
 
 jobs:
   build-and-publish:
@@ -56,7 +57,7 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Setup Java 17 for Sonar
+      - name: Setup Java for SonarQube
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
@@ -78,28 +79,16 @@ jobs:
           }
           echo "projectKey=$assemblyName" >> $env:GITHUB_OUTPUT
 
-      - name: Set Branch and NuGet Feed URL
-        id: stage
+      - name: Determine Branch Context
+        id: context
         shell: bash
         run: |
-          BRANCH_NAME="${GITHUB_REF##*/}"
-          echo "Branch is $BRANCH_NAME"
-          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF##*/}}" >> $GITHUB_OUTPUT
+          echo "baseBranch=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
+          echo "prNumber=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
 
-          if [[ "$BRANCH_NAME" == "dev" || "$BRANCH_NAME" == "main" ]]; then
-            echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
-            echo "stage=Dev" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH_NAME" == "qa" ]]; then
-            echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
-            echo "stage=QA" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH_NAME" == "prod" ]]; then
-            echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
-            echo "stage=Prod" >> $GITHUB_OUTPUT
-          else
-            echo "Invalid or unsupported branch: $BRANCH_NAME"
-            exit 1
-
-      - name: Begin SonarQube Analysis
+      - name: Begin SonarQube Analysis (PR Mode)
+        if: github.event_name == 'pull_request'
         shell: powershell
         run: |
           dotnet-sonarscanner begin `
@@ -107,16 +96,29 @@ jobs:
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
             /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
             /d:sonar.verbose=true `
-            /d:sonar.branch.name=${{ steps.stage.outputs.branch }}
+            /d:sonar.pullrequest.key=${{ steps.context.outputs.prNumber }} `
+            /d:sonar.pullrequest.branch=${{ steps.context.outputs.branch }} `
+            /d:sonar.pullrequest.base=${{ steps.context.outputs.baseBranch }} `
+            /d:sonar.pullrequest.github.repository=${{ github.repository }}
 
-      - name: Configure NuGet Source
+      - name: Begin SonarQube Analysis (Non-PR)
+        if: github.event_name != 'pull_request'
+        shell: powershell
+        run: |
+          dotnet-sonarscanner begin `
+            /k:"${{ steps.project_info.outputs.projectKey }}" `
+            /d:sonar.token="${{ env.SONAR_TOKEN }}" `
+            /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
+            /d:sonar.verbose=true `
+            /d:sonar.branch.name=${{ steps.context.outputs.branch }}
+
+      - name: Configure NuGet Feed
         run: |
           nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
           nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "dummy" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
 
       - name: Restore Packages
         run: dotnet restore "project/${{ inputs.projectPath }}" `
-          --source "$env:NUGET_FEED_URL" `
           --source "https://api.nuget.org/v3/index.json"
 
       - name: Run Linting (dotnet format)
@@ -129,7 +131,7 @@ jobs:
         shell: powershell
         run: dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
-      - name: Pack NuGet Package (use .csproj version)
+      - name: Pack NuGet Package
         id: pack
         shell: pwsh
         run: |
