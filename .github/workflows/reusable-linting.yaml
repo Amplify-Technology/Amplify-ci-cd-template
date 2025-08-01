@@ -52,7 +52,7 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Setup Java for Sonar
+      - name: Setup Java for SonarQube
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
@@ -61,22 +61,10 @@ jobs:
       - name: Install SonarQube Scanner
         run: dotnet tool install --global dotnet-sonarscanner
 
-      - name: Get Project Key from .csproj
-        id: project_info
-        shell: pwsh
-        run: |
-          [xml]$proj = Get-Content ${{ inputs.projectPath }}
-          $key = $proj.Project.PropertyGroup.AssemblyName
-          if (-not $key) {
-            $key = (Get-Item ${{ inputs.projectPath }}).BaseName
-          }
-          echo "projectKey=$key" >> "$GITHUB_OUTPUT"
-
       - name: SonarQube PR Analysis Start
-        if: ${{ inputs.pullRequestNumber != '' }}
         run: |
           dotnet-sonarscanner begin `
-            /k:"${{ steps.project_info.outputs.projectKey }}" `
+            /k:"Amplify.WebApi.v1.Models" `
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
             /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
             /d:sonar.pullrequest.key="${{ inputs.pullRequestNumber }}" `
@@ -94,7 +82,6 @@ jobs:
         run: dotnet build ${{ inputs.projectPath }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
       - name: End SonarQube Analysis
-        if: ${{ inputs.pullRequestNumber != '' }}
         run: dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Pack NuGet Package
