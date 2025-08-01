@@ -1,7 +1,18 @@
 name: Dotnet CI for Pull Request with SonarQube and Lint
 
 on:
-  pull_request:
+  workflow_call:
+    inputs:
+      projectPath:
+        required: true
+        type: string
+    secrets:
+      SONAR_TOKEN:
+        required: true
+      AZURE_ARTIFACTS_PAT:
+        required: true
+      GITHUB_REPO_PAT:         
+        required: true
 
 permissions:
   id-token: write
@@ -17,12 +28,15 @@ jobs:
       DOTNET_VERSION: '8.0.x'
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       AZURE_ARTIFACTS_PAT: ${{ secrets.AZURE_ARTIFACTS_PAT }}
+      GITHUB_REPO_PAT: ${{ secrets.GITHUB_REPO_PAT }}
       NUGET_FEED_URL: https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json
       NUGET_FEED_NAME: ArtifactsForGitHubWorkflows
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          token: ${{ env.GITHUB_REPO_PAT }} # Use PAT to checkout code from external repo
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -42,10 +56,10 @@ jobs:
         id: project_info
         shell: pwsh
         run: |
-          [xml]$proj = Get-Content *.csproj
+          [xml]$proj = Get-Content ${{ inputs.projectPath }}
           $key = $proj.Project.PropertyGroup.AssemblyName
           if (-not $key) {
-            $key = (Get-Item *.csproj).BaseName
+            $key = (Get-Item ${{ inputs.projectPath }}).BaseName
           }
           echo "projectKey=$key" >> $env:GITHUB_OUTPUT
 
@@ -61,20 +75,20 @@ jobs:
             /d:sonar.pullrequest.github.repository=${{ github.repository }}
 
       - name: Run Linting
-        run: dotnet format --verify-no-changes --severity info
+        run: dotnet format ${{ inputs.projectPath }} --verify-no-changes --severity info
 
       - name: Restore Dependencies
-        run: dotnet restore
+        run: dotnet restore ${{ inputs.projectPath }}
 
       - name: Build Project
-        run: dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+        run: dotnet build ${{ inputs.projectPath }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
       - name: End SonarQube Analysis
         run: dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Pack NuGet Package
         run: |
-          dotnet pack --configuration ${{ env.BUILD_CONFIGURATION }} --output out
+          dotnet pack ${{ inputs.projectPath }} --configuration ${{ env.BUILD_CONFIGURATION }} --output out
 
       - name: Push to Azure Artifacts
         run: |
