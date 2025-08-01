@@ -84,6 +84,15 @@ jobs:
         run: |
           echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
 
+      - name: Configure NuGet Source with PAT
+        run: |
+          nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
+          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} `
+            -Source "$env:NUGET_FEED_URL" `
+            -Username "anyuser" `
+            -Password "${{ env.AZURE_ARTIFACTS_PAT }}" `
+            -StorePasswordInClearText
+
       - name: Begin SonarQube Analysis
         shell: powershell
         run: |
