@@ -1,4 +1,4 @@
-name: Dotnet Reusable CI Build and Publish Template
+name: Dotnet Reusable CI Build and Publish Template (Sonar Only)
 
 on:
   workflow_call:
@@ -30,6 +30,7 @@ permissions:
 
 jobs:
   build-and-publish:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     outputs:
       nupkgPath: ${{ steps.pack.outputs.packagePath }}
@@ -78,27 +79,10 @@ jobs:
           }
           echo "projectKey=$assemblyName" >> $env:GITHUB_OUTPUT
 
-      - name: Set Branch and NuGet Feed URL
-        id: stage
+      - name: Set NuGet Feed URL
         shell: bash
         run: |
-          BRANCH_NAME="${GITHUB_REF##*/}"
-          echo "Branch is $BRANCH_NAME"
-          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
-
-          if [[ "$BRANCH_NAME" == "dev" || "$BRANCH_NAME" == "main" ]]; then
-            echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
-            echo "stage=Dev" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH_NAME" == "qa" ]]; then
-            echo "NUGET_FEED_URL=https://your-qa-feed-url" >> $GITHUB_ENV
-            echo "stage=QA" >> $GITHUB_OUTPUT
-          elif [[ "$BRANCH_NAME" == "prod" ]]; then
-            echo "NUGET_FEED_URL=https://your-prod-feed-url" >> $GITHUB_ENV
-            echo "stage=Prod" >> $GITHUB_OUTPUT
-          else
-            echo "Invalid or unsupported branch: $BRANCH_NAME"
-            exit 1
-          fi
+          echo "NUGET_FEED_URL=https://pkgs.dev.azure.com/amplify-artifact-org/ArtifactsProjectStore/_packaging/ArtifactsForGitHubWorkflows/nuget/v3/index.json" >> $GITHUB_ENV
 
       - name: Begin SonarQube Analysis
         shell: powershell
@@ -107,13 +91,7 @@ jobs:
             /k:"${{ steps.project_info.outputs.projectKey }}" `
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
             /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
-            /d:sonar.verbose=true `
-            /d:sonar.branch.name=${{ steps.stage.outputs.branch }}
-
-      - name: Configure NuGet Source
-        run: |
-          nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
-          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} -Source "$env:NUGET_FEED_URL" -Username "dummy" -Password "${{ env.AZURE_ARTIFACTS_PAT }}" -StorePasswordInClearText
+            /d:sonar.verbose=true
 
       - name: Restore Packages
         run: dotnet restore "project/${{ inputs.projectPath }}" `
@@ -126,22 +104,3 @@ jobs:
       - name: End SonarQube Analysis
         shell: powershell
         run: dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
-
-      - name: Pack NuGet Package (use .csproj version)
-        id: pack
-        shell: pwsh
-        run: |
-          dotnet pack "project/${{ inputs.projectPath }}" `
-            --configuration ${{ env.BUILD_CONFIGURATION }} `
-            --no-build `
-            --output ${{ env.NUGET_PACKAGE_PATH }}
-
-          $PACKAGE_PATH = Get-ChildItem -Path ${{ env.NUGET_PACKAGE_PATH }} -Filter *.nupkg -Recurse | Select-Object -First 1 -ExpandProperty FullName
-          echo "packagePath=$PACKAGE_PATH" >> $env:GITHUB_OUTPUT
-
-      - name: Push Package to Azure Artifacts
-        run: |
-          dotnet nuget push "${{ steps.pack.outputs.packagePath }}" `
-            --source "$env:NUGET_FEED_URL" `
-            --api-key AzureArtifacts `
-            --skip-duplicate
