@@ -61,6 +61,15 @@ jobs:
       - name: Install SonarQube Scanner
         run: dotnet tool install --global dotnet-sonarscanner
 
+      - name: Configure NuGet Source with PAT
+        run: |
+          nuget sources remove -Name ${{ env.NUGET_FEED_NAME }} || true
+          nuget sources add -Name ${{ env.NUGET_FEED_NAME }} `
+            -Source "${{ env.NUGET_FEED_URL }}" `
+            -Username "anyuser" `
+            -Password "${{ env.AZURE_ARTIFACTS_PAT }}" `
+            -StorePasswordInClearText
+
       - name: SonarQube PR Analysis Start
         run: |
           dotnet-sonarscanner begin `
@@ -73,7 +82,9 @@ jobs:
             /d:sonar.pullrequest.github.repository="${{ github.repository }}"
 
       - name: Restore Dependencies
-        run: dotnet restore ${{ inputs.projectPath }}
+        run: dotnet restore ${{ inputs.projectPath }} `
+          --source "${{ env.NUGET_FEED_URL }}" `
+          --source "https://api.nuget.org/v3/index.json"
 
       - name: Build Project
         run: dotnet build ${{ inputs.projectPath }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
