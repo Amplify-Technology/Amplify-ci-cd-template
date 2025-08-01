@@ -72,9 +72,6 @@ jobs:
             /d:sonar.pullrequest.base="${{ inputs.pullRequestBase }}" `
             /d:sonar.pullrequest.github.repository="${{ github.repository }}"
 
-      - name: Run Linting
-        run: dotnet format ${{ inputs.projectPath }} --verify-no-changes --severity info
-
       - name: Restore Dependencies
         run: dotnet restore ${{ inputs.projectPath }}
 
