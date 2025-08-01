@@ -6,6 +6,15 @@ on:
       projectPath:
         required: true
         type: string
+      pullRequestNumber:
+        required: false
+        type: string
+      pullRequestHead:
+        required: false
+        type: string
+      pullRequestBase:
+        required: false
+        type: string
     secrets:
       SONAR_TOKEN:
         required: true
@@ -64,16 +73,16 @@ jobs:
           echo "projectKey=$key" >> "$GITHUB_OUTPUT"
 
       - name: SonarQube PR Analysis Start
-        if: github.event_name == 'pull_request'
+        if: ${{ inputs.pullRequestNumber != '' }}
         run: |
           dotnet-sonarscanner begin `
             /k:"${{ steps.project_info.outputs.projectKey }}" `
             /d:sonar.token="${{ env.SONAR_TOKEN }}" `
             /d:sonar.host.url="http://amplify-platform-sonarqube.eastus.cloudapp.azure.com:9000" `
-            /d:sonar.pullrequest.key=${{ github.event.pull_request.number }} `
-            /d:sonar.pullrequest.branch=${{ github.head_ref }} `
-            /d:sonar.pullrequest.base=${{ github.base_ref }} `
-            /d:sonar.pullrequest.github.repository=${{ github.repository }}
+            /d:sonar.pullrequest.key="${{ inputs.pullRequestNumber }}" `
+            /d:sonar.pullrequest.branch="${{ inputs.pullRequestHead }}" `
+            /d:sonar.pullrequest.base="${{ inputs.pullRequestBase }}" `
+            /d:sonar.pullrequest.github.repository="${{ github.repository }}"
 
       - name: Run Linting
         run: dotnet format ${{ inputs.projectPath }} --verify-no-changes --severity info
@@ -85,7 +94,7 @@ jobs:
         run: dotnet build ${{ inputs.projectPath }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
       - name: End SonarQube Analysis
-        if: github.event_name == 'pull_request'
+        if: ${{ inputs.pullRequestNumber != '' }}
         run: dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Pack NuGet Package
