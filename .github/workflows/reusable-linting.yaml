@@ -11,7 +11,7 @@ on:
         required: true
       AZURE_ARTIFACTS_PAT:
         required: true
-      GITHUB_REPO_PAT:         
+      GITHUB_REPO_PAT:
         required: true
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          token: ${{ env.GITHUB_REPO_PAT }} # Use PAT to checkout code from external repo
+          token: ${{ env.GITHUB_REPO_PAT }}
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -61,9 +61,10 @@ jobs:
           if (-not $key) {
             $key = (Get-Item ${{ inputs.projectPath }}).BaseName
           }
-          echo "projectKey=$key" >> $env:GITHUB_OUTPUT
+          echo "projectKey=$key" >> "$GITHUB_OUTPUT"
 
       - name: SonarQube PR Analysis Start
+        if: github.event_name == 'pull_request'
         run: |
           dotnet-sonarscanner begin `
             /k:"${{ steps.project_info.outputs.projectKey }}" `
@@ -84,6 +85,7 @@ jobs:
         run: dotnet build ${{ inputs.projectPath }} --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
       - name: End SonarQube Analysis
+        if: github.event_name == 'pull_request'
         run: dotnet-sonarscanner end /d:sonar.token="${{ env.SONAR_TOKEN }}"
 
       - name: Pack NuGet Package
