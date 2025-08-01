@@ -1,4 +1,4 @@
-name: Dotnet CI for Pull Request with Linting
+name: Dotnet CI with Linting
 
 on:
   workflow_call:
@@ -15,7 +15,6 @@ on:
 permissions:
   id-token: write
   contents: read
-  pull-requests: write
 
 jobs:
   build-and-analyze:
